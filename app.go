@@ -1,73 +1,57 @@
 package main
 
-
-
-FOREIGN KEY (trade_pk) REFERENCES borrow_fee(trade_pk),
-FOREIGN KEY (member_pk) REFERENCES member(member_pk)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/joho/godotenv"
 )
 
+
 type Person struct {
-	Name string `json:"name"`
-	Age  int    `json:"age"`
+	Username string `json:"username"`
+	Create_time time.Time `json:"create_time"`
+}
+
+type Transcations struct {
+	Borrow_fee float64 `json:borrow_fee`
+	Create_time time.Time `json:create_time`
+	Times int `json:times` 
 }
 
 func main() {
+
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
 
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASS")
+	dbIP := os.Getenv("DB_IP")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
 
 	// 初始化Gin引擎
 	r := gin.Default()
 
-	// 設置路由
-	r.GET("/", func(c *gin.Context) {
+	r.GET("/user", func(c *gin.Context) {
 
 		// 連接到MySQL數據庫
-		db, err := sql.Open("mysql", "root:"+os.Getenv("DB_PASSWORD") +"@tcp("+ os.Getenv("dbHost")+":3306)/test")
+		db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", dbUser, dbPass, dbIP, dbPort, dbName))
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer db.Close()
-
-		// 查詢資料庫取得資料
-		rows, err := db.Query("SELECT name, age FROM users")
+		
+		// 取得客戶資料
+		query := fmt.Sprintf("SELECT username, create_time FROM member where member_pk=688")
+		rows, err := db.Query(query)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -79,16 +63,36 @@ func main() {
 		// 遍歷查詢結果，將每一行資料轉換為Person結構體，並添加到切片中
 		for rows.Next() {
 			var person Person
-			err := rows.Scan(&person.Name, &person.Age)
+			err := rows.Scan(&person.Username, &person.Create_time)
 			if err != nil {
 				log.Fatal(err)
 			}
 			people = append(people, person)
 		}
 
+		query = "SELECT bf.borrow_fee, bf.create_time, td.times FROM trade_details td JOIN borrow_fee bf ON td.trade_pk = bf.trade_pk WHERE td.member_pk = 688;"
+		rows, err = db.Query(query)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer rows.Close()
+
+		// 定義一個切片來存放查詢結果
+		var transcations []Transcations
+
+		for rows.Next() {
+			var transcation Transcations
+			err := rows.Scan(&transcation.Borrow_fee, &transcation.Create_time, &transcation.Times)
+			if err != nil {
+				log.Fatal(err)
+			}
+			transcations = append(transcations, transcation)
+		}
+
 		// 返回JSON格式的資料
 		c.JSON(200, gin.H{
 			"data": people,
+			"trade": transcations,
 		})
 	})
 

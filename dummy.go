@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"time"
-
+	"sort"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/joho/godotenv"
 )
@@ -104,17 +104,44 @@ func main() {
 			log.Fatalf("插入數據失敗: %v", err)
 		}
 	}
+	// // 提交事務
+	// if err = tx.Commit(); err != nil {
+	// 	tx.Rollback()
+	// 	log.Fatalf("提交事務失敗: %v", err)
+	// }
 	
-	
-	fmt.Println("客戶數據插入成功")
+	// fmt.Println("客戶數據插入成功")
 
-	if err != nil {
-		log.Fatalf("無法開始事務: %v", err)
-	}
+	// tx, err = db.Begin()
 
+	var timeArray [] time.Time
 	for i := 0; i < 5000; {
 		randomTime := generateRandomTime()
-		query := fmt.Sprintf("SELECT member_pk FROM member WHERE create_time < '%s' ORDER BY RAND() LIMIT 2", randomTime.Format("2006-01-02 15:04:05"))
+		query := fmt.Sprintf("SELECT count(*) FROM member WHERE create_time < '%s'", randomTime.Format("2006-01-02 15:04:05"))
+
+		var rowCount int
+		err := tx.QueryRow(query).Scan(&rowCount)
+		if err != nil {
+			tx.Rollback()
+			log.Fatalf("查詢member失敗: %v", err)
+		}
+		
+		if rowCount < 2{
+			fmt.Println("不足兩筆資料，重做", randomTime)
+			continue
+		}
+
+		timeArray = append(timeArray, randomTime)
+		i++
+	}
+
+
+	sort.Slice(timeArray, func(i, j int) bool {
+		return timeArray[i].Before(timeArray[j])
+	})
+
+	for i := 0; i < len(timeArray); i++ {
+		query := fmt.Sprintf("SELECT member_pk FROM member WHERE create_time < '%s' ORDER BY RAND() LIMIT 2", timeArray[i].Format("2006-01-02 15:04:05"))
 		rows, err := tx.Query(query)
 		if err != nil {
 			tx.Rollback()
@@ -132,13 +159,8 @@ func main() {
 			member_pks = append(member_pks, member_pk)
 		}
 
-		if len(member_pks) < 2{
-			fmt.Println("不足兩筆資料，重做")
-			continue
-		}
-
 		randomBorrow_fee := generateRandomBorrow_fee()
-		_, err = tx.Exec("INSERT INTO borrow_fee (borrow_fee, create_time) VALUES (?, ?)", randomBorrow_fee, randomTime)
+		_, err = tx.Exec("INSERT INTO borrow_fee (borrow_fee, create_time) VALUES (?, ?)", randomBorrow_fee, timeArray[i])
 		if err != nil {
 			tx.Rollback()
 			log.Fatalf("插入borrow_fee數據失敗: %v", err)
@@ -179,7 +201,7 @@ func main() {
 	}
 
 	// 提交事務
-	if err := tx.Commit(); err != nil {
+	if err = tx.Commit(); err != nil {
 		tx.Rollback()
 		log.Fatalf("提交事務失敗: %v", err)
 	}
